@@ -14,7 +14,7 @@ exp_id = '004'
 exp_folder = os.path.join('experiments', exp_id)
 
 
-log_df_path = os.path.join(exp_folder, 'log', 'training_log.csv')
+log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
     log_df = pd.read_csv(log_df_path)
     print(f'Logging data has been loaded')
