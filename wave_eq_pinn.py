@@ -292,6 +292,7 @@ if __name__ == '__main__':
     exp_id = args.exp_id if args.exp_id else next_experiment_number('experiments')
 
     # create folders
+    os.makedirs('experiments', exist_ok=True) # create experiments folder if it doesn't exist
     exp_folder = os.path.join('experiments', exp_id)
     os.makedirs(exp_folder, exist_ok=True)
     os.makedirs(os.path.join(exp_folder, 'logs'), exist_ok=True)
