@@ -322,7 +322,7 @@ if __name__ == '__main__':
     # defining model
     pinn = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2).to(device)
     criterion = nn.MSELoss() # actually not used but lets just keep it for now #TODO remove / or just use.
-    optimizer = optim.Adam(pinn.parameters(), lr=1e-3, weight_decay=1e-5)
+    optimizer = optim.Adam(pinn.parameters(), lr=1e-5, weight_decay=1e-5)
 
     ### Static parameters
     epochs = 10000
@@ -333,5 +333,5 @@ if __name__ == '__main__':
           features=features_, 
           boundaries=boundaries, v=v, 
           epochs=epochs, save_path=exp_folder,
-          adaptive=True, device=device)
+          adaptive=False, device=device)
 

@@ -10,7 +10,7 @@ from wave_eq_pinn import Net  # Replace with your actual model class
 model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
 
 # Load the training log
-exp_id = '019'
+exp_id = '021'
 exp_folder = os.path.join('experiments', exp_id)
 
 
