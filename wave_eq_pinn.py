@@ -79,15 +79,15 @@ def initial_condition_1(model: nn.Module, features, device):
     a = 1 # amplitude of the source
 
     x = features[:, 0] # take x-features from sampled data
-    t = torch.zeros_like(x, requires_grad=True).to(device) # set t=0 for all x
-    coll_points = torch.column_stack((x, t)) # concatenate x and t
+    t = torch.zeros_like(x, requires_grad=True) # set t=0 for all x
+    coll_points = torch.column_stack((x, t)).to(device) # concatenate x and t
 
-    pressure0 = a*torch.exp(-((x - x0)/sigma0)**2)
+    pressure0 = a*torch.exp(-((x - x0)/sigma0)**2).to(device)
     pred_pressure0 = model(coll_points)
-    loss = torch.mean(pressure0 - pred_pressure0)**2
+    loss = torch.mean((pressure0 - pred_pressure0)**2)
 
     # print(f'IC1 loss: {loss.item()},\nPressure_true {pressure0[:10]},\nPressure_pred {pred_pressure0[:10]}') if print_values else None
-    return loss
+    return loss, pressure0, pred_pressure0
 
 
 def initial_condition_2(model: nn.Module, features, device):
@@ -99,7 +99,7 @@ def initial_condition_2(model: nn.Module, features, device):
 
     pred_pressure0 = model(coll_points)
     pred_pressure0_grad, _ = gradient(pred_pressure0, t)
-    loss = torch.mean(pred_pressure0_grad)**2
+    loss = torch.mean(pred_pressure0_grad**2)
 
     # print(f'IC2 loss: {loss.item()}')
     return loss
@@ -196,7 +196,7 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
 
         # print_IC1 = True if epoch % 499 == 0 and epoch != 0 else False
         # IC physics loss
-        loss_ic1 = initial_condition_1(pinn, features, device)
+        loss_ic1, pres0, pred_pres0 = initial_condition_1(pinn, features, device)
         loss_ic2 = initial_condition_2(pinn, features, device)
 
         # BC physics loss
@@ -225,7 +225,6 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
         
         # Change 5: Update the loss function with the linear combination of all components.
         loss = adapt_weights[0] * loss_pde + adapt_weights[1]*loss_ic1 + adapt_weights[2]*loss_ic2 + adapt_weights[3]*loss_bc
-        
 
         loss.backward()         # Backward pass: Compute gradient of the loss with respect to model parameters
         optimizer.step()        # Update weights
@@ -233,7 +232,8 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
         
         # loss print
         print(f'Epoch {epoch+1}/{epochs}, Loss: {loss.item()}') if epoch % 100 == 0 and epoch != 0 else None
-        
+        print(f'loss components: \nloss_pde: {loss_pde.item()}, \nloss_ic1: {loss_ic1.item()}, \nloss_ic2: {loss_ic2.item()}, \nloss_bc: {loss_bc.item()}') if epoch % 100 == 0 and epoch != 0 else None
+        print(f'pressure 0 {pres0.mean()}\npred pressure 0 {pred_pres0.mean()}') if epoch % 100 == 0 and epoch != 0 else None
 
         # logging
         losses[epoch] = loss.item()
@@ -265,10 +265,10 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
     # Save the logs as CSV
     log_df = pd.DataFrame({
         'Total Loss': losses,
-        'PDE Loss': losses_pde,
+        # 'PDE Loss': losses_pde,
         'IC1 Loss': losses_ic1,
-        'IC2 Loss': losses_ic2,
-        'BC Loss': losses_bc,
+        # 'IC2 Loss': losses_ic2,
+        # 'BC Loss': losses_bc,
         'lambda PDE': lambda_pde,
         'lambda IC1': lambda_ic1,
         'lambda IC2': lambda_ic2,
@@ -313,7 +313,7 @@ if __name__ == '__main__':
 
     # data generation
     x_samples = np.random.uniform(*boundaries, num_samples)
-    t_samples = np.random.uniform(0, T, num_samples)
+    t_samples = np.zeros_like(x_samples) #np.random.uniform(0, T, num_samples)
 
     features = np.column_stack((x_samples, t_samples))
     features_ = torch.tensor(features, dtype=torch.float32, requires_grad=True).reshape(-1, 2).to(device)
@@ -322,7 +322,7 @@ if __name__ == '__main__':
     # defining model
     pinn = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2).to(device)
     criterion = nn.MSELoss() # actually not used but lets just keep it for now #TODO remove / or just use.
-    optimizer = optim.Adam(pinn.parameters(), lr=1e-5, weight_decay=1e-5)
+    optimizer = optim.Adam(pinn.parameters(), lr=1e-3, weight_decay=1e-5)
 
     ### Static parameters
     epochs = 10000
@@ -334,5 +334,5 @@ if __name__ == '__main__':
           boundaries=boundaries, v=v, 
           epochs=epochs, save_path=exp_folder,
           adaptive=False, device=device)
-
+    
 
