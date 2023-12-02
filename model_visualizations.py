@@ -10,7 +10,7 @@ from wave_eq_pinn import Net  # Replace with your actual model class
 model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
 
 # Load the training log
-exp_id = '011'
+exp_id = '019'
 exp_folder = os.path.join('experiments', exp_id)
 
 
@@ -175,3 +175,42 @@ plt.show()
 # save the figure in experiments logs folder
 plt.savefig(os.path.join(exp_folder, 'logs', 'difference.png'))
 print(f'Difference figure has been saved')
+
+
+
+# load all 10 model checkpoints and test their predictions
+# at t=0 for the entire x_domain
+checkpoint_folder = os.path.join(exp_folder, 'checkpoints')
+checkpoint_list = os.listdir(checkpoint_folder)
+
+# initialize the predictions array
+predictions = np.zeros((len(checkpoint_list), Nx))
+
+# loop through all checkpoints
+for i, checkpoint in enumerate(checkpoint_list):
+    # load the model
+    checkpoint_path = os.path.join(checkpoint_folder, checkpoint)
+    model.load_state_dict(torch.load(checkpoint_path))
+
+    # generate predictions
+    model.eval()  # Set the model to evaluation mode
+    with torch.no_grad():
+        predictions[i, :] = model(torch.stack((x_space, torch.zeros_like(x_space)), dim=1)).flatten().numpy()
+
+
+plt.figure(figsize=size, dpi=quality)
+# plot ground truth at t=0
+plt.plot(x_space.numpy(), u[0, :], label='Ground Truth', linestyle='--', color='black', linewidth=3)
+# Plot the predictions
+for i in range(len(checkpoint_list)):
+    plt.plot(x_space.numpy(), predictions[i, :], label=f'Checkpoint {i+1}')
+
+plt.xlabel('x')
+plt.ylabel('Amplitude')
+plt.title('Gaussian source predictions at t=0')
+plt.legend()
+plt.show()
+
+# save the figure in experiments logs folder
+plt.savefig(os.path.join(exp_folder, 'logs', 'checkpoint_predictions.png'))
+print(f'Checkpoint prediction figure has been saved')

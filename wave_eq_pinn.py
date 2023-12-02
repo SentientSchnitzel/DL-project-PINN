@@ -32,7 +32,7 @@ class Net(nn.Module):
         
         super(Net, self).__init__()
 
-        activation = nn.Tanh #nn.Softplus # nn.LeakyReLU, nn.Tanh, nn.ReLU, nn.ELU
+        activation = nn.Softplus # nn.LeakyReLU, nn.Tanh, nn.ReLU, nn.ELU
 
         self.input = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), 
@@ -79,8 +79,8 @@ def initial_condition_1(model: nn.Module, features, device):
     a = 1 # amplitude of the source
 
     x = features[:, 0] # take x-features from sampled data
-    t = torch.zeros_like(x, requires_grad=True) # set t=0 for all x
-    coll_points = torch.column_stack((x, t)).to(device) # concatenate x and t
+    t = torch.zeros_like(x, requires_grad=True, device=device) # set t=0 for all x
+    coll_points = torch.column_stack((x, t)) # concatenate x and t
 
     pressure0 = a*torch.exp(-((x - x0)/sigma0)**2).to(device)
     pred_pressure0 = model(coll_points)
@@ -109,12 +109,12 @@ def boundary_condition(model: nn.Module, features, device, boundaries: tuple):
     # boundary domain is in 'x'
     neg_bc, pos_bc = boundaries
     t = features[:, 1]
-    x_neg_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True)*neg_bc
-    x_pos_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True)*pos_bc
+    x_neg_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True, device=device)*neg_bc
+    x_pos_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True, device=device)*pos_bc
 
     # concat the boundary values to the time values
-    neg_boundary = torch.column_stack((x_neg_bc, t)).to(device)
-    pos_boundary = torch.column_stack((x_pos_bc, t)).to(device)
+    neg_boundary = torch.column_stack((x_neg_bc, t))
+    pos_boundary = torch.column_stack((x_pos_bc, t))
 
     neg_pred = model(neg_boundary)
     pos_pred = model(pos_boundary)
@@ -160,7 +160,7 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
 
     ### SoftAdapt parameters
     # Initializing adaptive weights to all ones.
-    adapt_weights = torch.tensor([1,1,1,1])
+    adapt_weights = torch.tensor([1,1,1,1]).to(device)
     # Change 1: Create a SoftAdapt object (with your desired variant)
     softadapt_object = LossWeightedSoftAdapt(beta=0.3)
     # Change 2: Define how often SoftAdapt calculate weights for the loss components
@@ -265,10 +265,10 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
     # Save the logs as CSV
     log_df = pd.DataFrame({
         'Total Loss': losses,
-        # 'PDE Loss': losses_pde,
+        'PDE Loss': losses_pde,
         'IC1 Loss': losses_ic1,
-        # 'IC2 Loss': losses_ic2,
-        # 'BC Loss': losses_bc,
+        'IC2 Loss': losses_ic2,
+        'BC Loss': losses_bc,
         'lambda PDE': lambda_pde,
         'lambda IC1': lambda_ic1,
         'lambda IC2': lambda_ic2,
@@ -313,7 +313,7 @@ if __name__ == '__main__':
 
     # data generation
     x_samples = np.random.uniform(*boundaries, num_samples)
-    t_samples = np.zeros_like(x_samples) #np.random.uniform(0, T, num_samples)
+    t_samples = np.random.uniform(0, T, num_samples)
 
     features = np.column_stack((x_samples, t_samples))
     features_ = torch.tensor(features, dtype=torch.float32, requires_grad=True).reshape(-1, 2).to(device)
@@ -333,6 +333,5 @@ if __name__ == '__main__':
           features=features_, 
           boundaries=boundaries, v=v, 
           epochs=epochs, save_path=exp_folder,
-          adaptive=False, device=device)
-    
+          adaptive=True, device=device)
 
