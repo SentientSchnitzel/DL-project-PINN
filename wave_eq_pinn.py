@@ -74,7 +74,7 @@ def gradient(outputs, inputs, order=1):
 def initial_condition_1(model: nn.Module, features, device):
     # Gaussian source
     
-    x0 = 0 # positions of the source
+    x0 = 0. # positions of the source
     sigma0 = 0.1 # width of the frequency 
     a = 1 # amplitude of the source
 
@@ -82,9 +82,15 @@ def initial_condition_1(model: nn.Module, features, device):
     t = torch.zeros_like(x, requires_grad=True, device=device) # set t=0 for all x
     coll_points = torch.column_stack((x, t)) # concatenate x and t
 
-    pressure0 = a*torch.exp(-((x - x0)/sigma0)**2).to(device)
+    pressure0 = a*torch.exp(-((x - x0)/sigma0)**2).reshape(-1,1).to(device)
     pred_pressure0 = model(coll_points)
     loss = torch.mean((pressure0 - pred_pressure0)**2)
+
+    ##adder en punkt på toppen af gauss
+    #collpoint_1 = torch.tensor([x0,0.]).reshape(1,2).to(device)
+    #loss2 = (torch.tensor(1.).to(device)-model(collpoint_1))**2
+
+    #loss3 = loss + loss2
 
     # print(f'IC1 loss: {loss.item()},\nPressure_true {pressure0[:10]},\nPressure_pred {pred_pressure0[:10]}') if print_values else None
     return loss, pressure0, pred_pressure0
@@ -225,6 +231,7 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
         
         # Change 5: Update the loss function with the linear combination of all components.
         loss = adapt_weights[0] * loss_pde + adapt_weights[1]*loss_ic1 + adapt_weights[2]*loss_ic2 + adapt_weights[3]*loss_bc
+        #loss = loss_ic1
 
         loss.backward()         # Backward pass: Compute gradient of the loss with respect to model parameters
         optimizer.step()        # Update weights
@@ -315,6 +322,9 @@ if __name__ == '__main__':
     x_samples = np.random.uniform(*boundaries, num_samples)
     t_samples = np.random.uniform(0, T, num_samples)
 
+    x_samples = np.sort(x_samples)
+    t_samples = np.sort(t_samples)
+
     features = np.column_stack((x_samples, t_samples))
     features_ = torch.tensor(features, dtype=torch.float32, requires_grad=True).reshape(-1, 2).to(device)
     
@@ -322,7 +332,7 @@ if __name__ == '__main__':
     # defining model
     pinn = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2).to(device)
     criterion = nn.MSELoss() # actually not used but lets just keep it for now #TODO remove / or just use.
-    optimizer = optim.Adam(pinn.parameters(), lr=1e-5, weight_decay=1e-5)
+    optimizer = optim.Adam(pinn.parameters(), lr=0.01, weight_decay=1e-5)
 
     ### Static parameters
     epochs = 10000
@@ -333,5 +343,5 @@ if __name__ == '__main__':
           features=features_, 
           boundaries=boundaries, v=v, 
           epochs=epochs, save_path=exp_folder,
-          adaptive=False, device=device)
+          adaptive=True, device=device)
 
