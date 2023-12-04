@@ -15,6 +15,10 @@ exp_id = max(dirs)
 #exp_id = '005'
 exp_folder = os.path.join('experiments', exp_id)
 
+# load model architecture from the saved model
+# model_path = os.path.join(exp_folder, 'best_model', 'best_model.pt')
+# model = torch.load(model_path)
+
 
 log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
@@ -165,7 +169,7 @@ print(f'Prediction figure has been saved')
 
 ### Plot the difference between the ground truth and the model predictions
 plt.figure(figsize=size, dpi=quality)
-diff = u - predictions.numpy()
+diff = u - predictions.rot90(1).flip(1).numpy()  # rotate and flip the predictions to match the ground truth
 plt.imshow(diff, extent=[*x_domain, *t_domain], aspect='auto', cmap='viridis')
 # plt.contourf(X_mesh.numpy(), T_mesh.numpy(), u - predictions.numpy(), levels=100, cmap='viridis')
 plt.colorbar(label='Amplitude')
