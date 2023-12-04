@@ -7,6 +7,7 @@ import argparse
 import torch
 
 from wave_eq_pinn_minibatching import Net  # Replace with your actual model class
+from utils import *
 
 
 ### PARSING ###
@@ -23,19 +24,13 @@ if args.exp_id is None:
 else:
     exp_id = args.exp_id
 
+# get device
+device = get_device(verbose=True)
+
 
 # Load the training log
 exp_folder = os.path.join('experiments', exp_id)
-<<<<<<< HEAD
-
-# load model architecture from the saved model
-# model_path = os.path.join(exp_folder, 'best_model', 'best_model.pt')
-# model = torch.load(model_path)
-
-
-=======
 print(f'Loading experiment from {exp_folder}')
->>>>>>> 2defcbe209d3e1688fa82d6163d70f274660f3fa
 log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
     log_df = pd.read_csv(log_df_path)
@@ -47,11 +42,11 @@ except FileNotFoundError:
     logging_plots = False
 
 
+
 ### static plot parameters
 plt.rcParams['font.size'] = 12
 quality = 200 #dpi
 size = (10, 6) #inches
-
 
 if logging_plots:
     fig, ax = plt.subplots(figsize=(10, 10), nrows=3, dpi=200)
@@ -92,7 +87,6 @@ if logging_plots:
     fig.savefig(os.path.join(exp_folder, 'logs', 'training_log.png'))
     print(f'Logging figure has been saved')
 
-
 # Define your model architecture (must match the saved model)
 model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
 
@@ -100,16 +94,16 @@ model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace wit
 try:
     # get the best model
     best_model_path = os.path.join(exp_folder, 'best_model', 'best_model.pt')
-    model.load_state_dict(torch.load(best_model_path))
+    model.load_state_dict(torch.load(best_model_path, map_location=device))
     print(f'Best model has been loaded')
 except FileNotFoundError:
     print(f'No best model found at best_model/best_model.pt.')
     # get the latest checkpoint
     checkpoint_folder = os.path.join(exp_folder, 'checkpoints')
-    checkpoint_list = os.listdir(checkpoint_folder)
-    checkpoint_list.sort()
-    checkpoint_path = os.path.join(checkpoint_folder, checkpoint_list[-1])
-    model.load_state_dict(torch.load(checkpoint_path))
+    checkpoints = os.listdir(checkpoint_folder)
+    checkpoints.sort()
+    checkpoint_path = os.path.join(checkpoint_folder, checkpoints[-1])
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
     print(f'Checkpoint {checkpoint_path} has been loaded instead.')
 
 
@@ -188,7 +182,7 @@ print(f'Prediction figure has been saved')
 
 ### Plot the difference between the ground truth and the model predictions
 plt.figure(figsize=size, dpi=quality)
-diff = u - predictions.rot90(1).flip(1).numpy()  # rotate and flip the predictions to match the ground truth
+diff = u - predictions.rot90(1).flip(1).numpy() # rotate and flip the predictions to match the ground truth
 plt.imshow(diff, extent=[*x_domain, *t_domain], aspect='auto', cmap='viridis')
 # plt.contourf(X_mesh.numpy(), T_mesh.numpy(), u - predictions.numpy(), levels=100, cmap='viridis')
 plt.colorbar(label='Amplitude')
@@ -215,7 +209,7 @@ predictions = np.zeros((len(checkpoint_list), Nx))
 for i, checkpoint in enumerate(checkpoint_list):
     # load the model
     checkpoint_path = os.path.join(checkpoint_folder, checkpoint)
-    model.load_state_dict(torch.load(checkpoint_path))
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
 
     # generate predictions
     model.eval()  # Set the model to evaluation mode
