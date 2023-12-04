@@ -2,20 +2,31 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import argparse
+
 import torch
 
-from wave_eq_pinn import Net  # Replace with your actual model class
+from wave_eq_pinn_minibatching import Net  # Replace with your actual model class
 
-# Define your model architecture (must match the saved model)
-model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
+
+### PARSING ###
+# parse input arguments
+parser = argparse.ArgumentParser()
+parser.add_argument('--exp_id', type=str, default=None, help='Experiment ID (default: newest)')
+args = parser.parse_args()
+
+# get newest experiment id
+if args.exp_id is None:
+    exp_list = os.listdir('experiments')
+    exp_list.sort()
+    exp_id = exp_list[-1]
+else:
+    exp_id = args.exp_id
+
 
 # Load the training log
-dirs = os.listdir('experiments')
-exp_id = max(dirs)
-#exp_id = '005'
 exp_folder = os.path.join('experiments', exp_id)
-
-
+print(f'Loading experiment from {exp_folder}')
 log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
     log_df = pd.read_csv(log_df_path)
@@ -72,6 +83,9 @@ if logging_plots:
     fig.savefig(os.path.join(exp_folder, 'logs', 'training_log.png'))
     print(f'Logging figure has been saved')
 
+
+# Define your model architecture (must match the saved model)
+model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
 
 # Load the best model (or a specific checkpoint)
 try:
@@ -141,7 +155,7 @@ print(f'Ground truth figure has been saved')
 # Generate predictions over time and space
 x_space = torch.linspace(*x_domain, Nx)
 t_space = torch.linspace(*t_domain, Nt)
-X_mesh, T_mesh = torch.meshgrid(x_space, t_space)
+X_mesh, T_mesh = torch.meshgrid(x_space, t_space, indexing='ij')
 feature_grid = torch.stack((X_mesh.flatten(), T_mesh.flatten()), dim=1)
 
 model.eval()  # Set the model to evaluation mode
