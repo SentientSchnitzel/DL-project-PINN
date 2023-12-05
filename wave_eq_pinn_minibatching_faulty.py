@@ -7,14 +7,14 @@ import re
 import torch 
 from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, LinearLR
 
 from tqdm import tqdm
 
 from softadapt import LossWeightedSoftAdapt
 
-from utils import *
+# from utils import *
 
 
 parser = argparse.ArgumentParser(description='Run wave equation PINN experiment.')
@@ -366,7 +366,10 @@ if __name__ == '__main__':
     print(f'Experiment ID: {exp_id}')
 
     # set device
-    device = get_device(verbose=True)
+    # device = get_device(verbose=True)
+    # set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
     # DATA GENERATION
     # Static parameters

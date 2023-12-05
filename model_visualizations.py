@@ -7,7 +7,7 @@ import argparse
 import torch
 
 from wave_eq_pinn_minibatching import Net  # Replace with your actual model class
-from utils import *
+# from utils import *
 
 
 ### PARSING ###
@@ -24,7 +24,7 @@ else:
     exp_id = args.exp_id
 
 # get device
-device = get_device(verbose=True)
+# device = get_device(verbose=True)
 
 
 # Load the training log
@@ -95,7 +95,7 @@ try:
     best_model_path = os.path.join(exp_folder, 'best_model', 'best_model.pt')
     model.load_state_dict(torch.load(best_model_path, map_location=device))
     print(f'Best model has been loaded')
-except FileNotFoundError:
+except FileNotFoundError or NameError:
     print(f'No best model found at best_model/best_model.pt.')
     # get the latest checkpoint
     checkpoint_folder = os.path.join(exp_folder, 'checkpoints')

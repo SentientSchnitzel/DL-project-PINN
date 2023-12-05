@@ -356,8 +356,13 @@ if __name__ == '__main__':
     t_samples = np.random.uniform(0, T, num_samples)
 
     features = np.column_stack((x_samples, t_samples)) # concatenate x and t
-    features_ = torch.tensor(features, dtype=torch.float32, requires_grad=True, device=device).reshape(-1, 2)
-    dataset = TensorDataset(features_)
+    features_ = torch.tensor(features, dtype=torch.float32).reshape(-1, 2)
+    # sort features by second column (time) and keep pairings of observations.
+    sorted_features_ = features_[torch.argsort(features_[:, 1])]
+    sorted_features_ = sorted_features_.requires_grad_(True).to(device)
+
+
+    dataset = TensorDataset(sorted_features_)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 
