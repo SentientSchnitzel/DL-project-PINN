@@ -18,24 +18,14 @@ args = parser.parse_args()
 # get newest experiment id
 if args.exp_id is None:
     exp_list = os.listdir('experiments')
-    exp_list.sort()
-    exp_id = exp_list[-1]
+    exp_id = max(exp_list)
 else:
     exp_id = args.exp_id
 
 
 # Load the training log
 exp_folder = os.path.join('experiments', exp_id)
-<<<<<<< HEAD
-
-# load model architecture from the saved model
-# model_path = os.path.join(exp_folder, 'best_model', 'best_model.pt')
-# model = torch.load(model_path)
-
-
-=======
 print(f'Loading experiment from {exp_folder}')
->>>>>>> 2defcbe209d3e1688fa82d6163d70f274660f3fa
 log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
     log_df = pd.read_csv(log_df_path)

@@ -7,7 +7,7 @@ import re
 import torch 
 from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, LinearLR
 
 from tqdm import tqdm
