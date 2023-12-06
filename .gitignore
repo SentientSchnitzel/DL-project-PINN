@@ -14,8 +14,8 @@ __pycache__/
 # Saved model artifacts
 saved_models/
 
-# TensorBoard logs
-logs/
+# TensorBoard runs
+runs/
 
 # Environment
 env/
