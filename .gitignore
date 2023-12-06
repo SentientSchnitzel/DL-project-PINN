@@ -14,8 +14,11 @@ __pycache__/
 # Saved model artifacts
 saved_models/
 
-# TensorBoard runs
-runs/
+# training:
+# tensorboard logs
+runs/ 
+# experiment results
+experiments/
 
 # Environment
 env/
