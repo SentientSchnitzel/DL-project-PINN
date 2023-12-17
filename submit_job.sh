@@ -1,8 +1,4 @@
-#!/bin/sh 
-
-# Capture the exp ID passed as an argument
-# exp_id=$1
-
+#!/bin/sh
 #BSUB -q gpuv100
 #BSUB -J wave_eq_pinn
 #BSUB -n 4
@@ -20,7 +16,7 @@
 #BSUB -e j_errors/Error_%J.err
 
 source .venv/bin/activate
-module load cuda/12.0
+module load cuda/11.6
 
 ### Write which script to run below
-python3 wave_eq_pinn_minibatching.py --exp_id #$exp_id
+python3 train.py
