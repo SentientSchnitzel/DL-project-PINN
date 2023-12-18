@@ -3,23 +3,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import argparse
-
 import torch
 
 from train import Net
 from utils import *
 
 
+
+device = get_device(verbose=True)
+
+
 ### PARSING ###
 # parse input arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--exp_id', type=str, default=None, help='Experiment ID (default: newest)')
-args = parser.parse_args()
-
-### JSON arguments
-n_logs = 100
-epochs = 2000
-
+args = get_arguments(parser)
 
 # get newest experiment id
 if args.exp_id is None:
@@ -29,20 +26,24 @@ if args.exp_id is None:
 else:
     exp_id = args.exp_id
 
-# get device
-device = get_device(verbose=True)
+exp_folder = create_folder_structure(exp_id)
+conf = get_config(os.path.join(exp_folder, 'conf.yml')) # get the config file from the experiment folder
+figures_folder = os.path.join(exp_folder, 'figures')
 
+
+
+### JSON arguments
+n_logs = conf['logging']['n_logs']
+epochs = conf['training']['epochs']
 
 # Load the training log
-exp_folder = os.path.join('experiments', exp_id)
-print(f'Loading experiment from {exp_folder}')
 log_df_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
 try:
     log_df = pd.read_csv(log_df_path)
     print(f'Logging data has been loaded')
     logging_plots = True
 except FileNotFoundError:
-    print(f'No training log found at {log_df_path}.')
+    print(f'No training log found at {log_df_path}. No logging plots will be generated.')
     # exit()
     logging_plots = False
 
@@ -123,14 +124,18 @@ if logging_plots:
     plt.tight_layout()
     plt.show()
 
-    # save figure
-    fig.savefig(os.path.join(exp_folder, 'logs', 'training_log.png'))
+    fig.savefig(os.path.join(figures_folder, 'training_log.png'))
     print(f'Logging figure has been saved')
 
 
 # Define your model architecture (must match the saved model)
-#! TODO: replace with loading of JSON file from experiment folder.
-model = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2)  # Replace with your actual model architecture
+model = Net(input_dim=2, 
+            output_dim=1, 
+            hidden_dim=conf['training']['hidden_dim'], 
+            n_layers=conf['training']['n_layers'],
+            dropout_rate=conf['training']['dropout_rate'],
+            initialization=conf['training']['initialization']
+            )  # Replace with your actual model architecture
 
 # Load the best model (or a specific checkpoint)
 try:
@@ -150,55 +155,64 @@ except FileNotFoundError:
 
 
 ### Finite Difference Ground Truth Solution
-x_domain = (-1, 1)
-t_domain = (0, 2)  # Define T domain
+def calc_ground_truth(x_domain, t_domain, c, sigma, source_point):
+    
+    Lx = x_domain[1] - x_domain[0]  # Length of the domain
+    Lt = t_domain[1] - t_domain[0]  # Length of the time domain
+    Nx = int(Lx * 500)
+    Nt = int(Lt * 500)
+    dx = Lx / Nx
+    dt = Lt / Nt    # Smaller time step for stability
 
-Lx = x_domain[1] - x_domain[0]  # Length of the domain
-Lt  = t_domain[1] - t_domain[0]  # Length of the time domain
-Nx = 1000        # Number of spatial points
-Nt = 1000        # Number of time points
-c = 1           # Wave speed
-dx = Lx / Nx
-dt = Lt / Nt    # Smaller time step for stability
-alpha = 50      # Gaussian width parameter
-source_point = 0.0  # Position of the Gaussian source
+    # Spatial grid
+    x = np.linspace(*x_domain, Nx)
 
-# Spatial grid
-x = np.linspace(*x_domain, Nx)
+    # intitialize the wave field
+    u = np.zeros((Nt, Nx))
+    u[0, :] = np.exp(-((x - source_point)/sigma)**2)
 
-# intitialize the wave field
-u = np.zeros((Nt, Nx))
-u[0, :] = np.exp(-alpha * (x - source_point)**2)
+    u[1, :] = u[0, :]  # No initial velocity
 
-u[1, :] = u[0, :]  # No initial velocity
+    # Finite difference method
+    for n in range(1, Nt - 1):
+        for i in range(1, Nx - 1):
+            u[n + 1, i] = 2*u[n, i] - u[n - 1, i] + (dt**2 * c**2) * (u[n, i - 1] - 2*u[n, i] + u[n, i + 1]) / dx**2
 
-# Finite difference method
-for n in range(1, Nt - 1):
-    for i in range(1, Nx - 1):
-        u[n + 1, i] = 2*u[n, i] - u[n - 1, i] + (dt**2 * c**2) * (u[n, i - 1] - 2*u[n, i] + u[n, i + 1]) / dx**2
+        # Neumann boundary conditions
+        u[n + 1, 0] = u[n + 1, 1]
+        u[n + 1, -1] = u[n + 1, -2]
 
-    # Neumann boundary conditions
-    u[n + 1, 0] = u[n + 1, 1]
-    u[n + 1, -1] = u[n + 1, -2]
+    # u = np.flip(u, axis=0)  # flip the array to match the model predictions
+    x_space = torch.linspace(*x_domain, Nx)
+    t_space = torch.linspace(*t_domain, Nt)
+    return u, x_space, t_space
+
+### Finite Difference Ground Truth Solution
+x_domain = conf['data']['x_domain']
+t_domain = conf['data']['t_domain']
+t_domain[1] += + 0.5 * t_domain[1] # extend the time domain for use in extrapolation
+c = conf['physics']['wave_speed']
+sigma = conf['physics']['sigma']
+source_point = conf['physics']['x0']
+
+u, x_space, t_space = calc_ground_truth(x_domain, t_domain, c, sigma, source_point)
 
 # Plot the ground truth solution
 plt.figure(figsize=size, dpi=quality)
-plt.imshow(u, extent=[*x_domain, *t_domain], aspect='auto', cmap='viridis')
+plt.contourf(x_space, t_space, u, levels=100, cmap='viridis')
 plt.title('Wave Propagation')
+plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=1)
 plt.xlabel('Space')
 plt.ylabel('Time')
 plt.colorbar(label='Amplitude')
 plt.show()
 
-# save the figure in experiments logs folder
-plt.savefig(os.path.join(exp_folder, 'logs', 'ground_truth.png'))
+plt.savefig(os.path.join(figures_folder, 'ground_truth.png'))
 print(f'Ground truth figure has been saved')
 
 
 
 # Generate predictions over time and space
-x_space = torch.linspace(*x_domain, Nx)
-t_space = torch.linspace(*t_domain, Nt)
 X_mesh, T_mesh = torch.meshgrid(x_space, t_space, indexing='ij')
 feature_grid = torch.stack((X_mesh.flatten(), T_mesh.flatten()), dim=1)
 
@@ -210,30 +224,30 @@ with torch.no_grad():
 plt.figure(figsize=size, dpi=quality)
 plt.contourf(X_mesh.numpy(), T_mesh.numpy(), predictions.numpy(), levels=100, cmap='viridis')
 plt.colorbar(label='Model Prediction')
+plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=1)
 plt.xlabel('x')
 plt.ylabel('t')
 plt.title('Model Predictions Over Time and Space')
 plt.show()
 
-# save the figure in experiments logs folder
-plt.savefig(os.path.join(exp_folder, 'logs', 'model_predictions.png'))
+plt.savefig(os.path.join(figures_folder, 'model_predictions.png'))
 print(f'Prediction figure has been saved')
 
 
 
 ### Plot the difference between the ground truth and the model predictions
 plt.figure(figsize=size, dpi=quality)
-diff = u - predictions.rot90(1).numpy() # rotate and flip the predictions to match the ground truth
-plt.imshow(diff, extent=[*x_domain, *t_domain], aspect='auto', cmap='viridis')
-# plt.contourf(X_mesh.numpy(), T_mesh.numpy(), u - predictions.numpy(), levels=100, cmap='viridis')
+diff = u.T - predictions.numpy() # rotate the predictions to match the ground truth
+# plt.contourf(x_space, t_space, diff, levels=100, cmap='viridis')
+plt.contourf(X_mesh.numpy(), T_mesh.numpy(), diff, levels=100, cmap='viridis')
 plt.colorbar(label='Amplitude')
+plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=1)
 plt.xlabel('x')
 plt.ylabel('t')
 plt.title('Difference Between Ground Truth and Model Predictions')
 plt.show()
 
-# save the figure in experiments logs folder
-plt.savefig(os.path.join(exp_folder, 'logs', 'difference.png'))
+plt.savefig(os.path.join(figures_folder, 'difference.png'))
 print(f'Difference figure has been saved')
 
 
@@ -244,7 +258,7 @@ checkpoint_folder = os.path.join(exp_folder, 'checkpoints')
 checkpoint_list = os.listdir(checkpoint_folder)
 
 # initialize the predictions array
-predictions = np.zeros((len(checkpoint_list), Nx))
+predictions = np.zeros((len(checkpoint_list), len(x_space)))
 
 # loop through all checkpoints
 for i, checkpoint in enumerate(checkpoint_list):
@@ -259,11 +273,17 @@ for i, checkpoint in enumerate(checkpoint_list):
 
 
 plt.figure(figsize=size, dpi=quality)
-# plot ground truth at t=0
+# plot ground truth at t=0 for 10 checkpoints to see evolution
 plt.plot(x_space.numpy(), u[0, :], label='Ground Truth', linestyle='--', color='black', linewidth=3)
-# Plot the predictions
 for i in range(len(checkpoint_list)):
-    plt.plot(x_space.numpy(), predictions[i, :], label=f'Checkpoint {i+1}')
+    plt.plot(x_space.numpy(), predictions[i, :], alpha=0.5, label=f'Checkpoint {i+1}')
+
+# best model prediction
+model.load_state_dict(torch.load(best_model_path, map_location=device))
+model.eval()
+with torch.no_grad():
+    best_model_predictions = model(torch.stack((x_space, torch.zeros_like(x_space)), dim=1)).flatten().numpy()
+plt.plot(x_space.numpy(), best_model_predictions, label='Best Model', color='red', linewidth=3)
 
 plt.xlabel('x')
 plt.ylabel('Amplitude')
@@ -271,6 +291,5 @@ plt.title('Gaussian source predictions at t=0')
 plt.legend()
 plt.show()
 
-# save the figure in experiments logs folder
-plt.savefig(os.path.join(exp_folder, 'logs', 'checkpoint_predictions.png'))
-print(f'Checkpoint prediction figure has been saved')
+plt.savefig(os.path.join(figures_folder, 't0_gaussian_predictions.png'))
+print(f't=0 Gaussian source predictions figure has been saved')
