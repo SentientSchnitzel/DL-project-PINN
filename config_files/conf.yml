@@ -1,0 +1,20 @@
+training:
+  learning_rate: 0.001
+  num_epochs: 1000
+  optimizer: adam
+  hidden_dim: 32
+  n_layers: 2
+  scheduler: OneCycleLR # set None for no scheduler
+
+logging:
+  tensorboard: false
+  n_logs: 100 # number of times there is a log of loss etc
+
+data:
+  batch_size: 64 # set-1 for no minibatching
+  t_domain: [0,2]
+  x_domain: [-1,1]
+  num_collocation_points: 1000
+  wave_speed: 1
+
+physics:

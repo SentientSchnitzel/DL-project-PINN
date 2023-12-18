@@ -1,8 +1,4 @@
-#!/bin/sh 
-
-# Capture the exp ID passed as an argument
-# exp_id=$1
-
+#!/bin/sh
 #BSUB -q gpuv100
 #BSUB -J wave_eq_pinn
 #BSUB -n 4
