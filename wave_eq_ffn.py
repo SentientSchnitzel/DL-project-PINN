@@ -45,7 +45,9 @@ class Net(nn.Module):
         self.network = nn.Sequential(
             *[nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
-                activation()
+                activation(),
+                # nn.BatchNorm1d(hidden_dim),
+                # nn.Dropout(0.3),
             ) for i in range(n_layers)]
         )
 
@@ -61,7 +63,7 @@ class Net(nn.Module):
 
 
 def calc_ground_truth(x_domain, t_domain):
-    resolution = 8
+    resolution = 16
     Lx = x_domain[1] - x_domain[0]  # Length of the domain
     Lt  = t_domain[1] - t_domain[0]  # Length of the time domain
     Nx = Lx * resolution        # Number of spatial points

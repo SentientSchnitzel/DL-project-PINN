@@ -6,7 +6,7 @@ import argparse
 
 import torch
 
-from wave_eq_ffn import Net  # Replace with your actual model class
+from wave_eq_pinn_minibatching import Net  # Replace with your actual model class
 from utils import *
 
 
@@ -48,17 +48,36 @@ quality = 200 #dpi
 size = (10, 6) #inches
 
 if logging_plots:
-    fig, ax = plt.subplots(figsize=(10, 10), nrows=1, dpi=200)
+    fig, ax = plt.subplots(figsize=(10, 10), nrows=3, dpi=200)
 
     # Plot Total Loss
-    ax.plot(log_df['Total Loss'], label='Loss')
-    ax.set_xlabel('Epochs')
-    ax.set_ylabel('Loss')
-    ax.set_yscale('log')
-    ax.set_title('Loss over Epochs')
-    ax.legend()
-    # set ax scale to log
-    # ax.set_yscale('log')
+    ax[0].plot(log_df['Total Loss'], label='Total Loss')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss')
+    ax[0].set_yscale('log')
+    ax[0].set_title('Total Loss over Epochs')
+    ax[0].legend()
+
+    # Plot Individual Loss Terms
+    ax[1].plot(log_df['PDE Loss'], label='PDE Loss')
+    ax[1].plot(log_df['IC1 Loss'], label='IC1 Loss')
+    ax[1].plot(log_df['IC2 Loss'], label='IC2 Loss')
+    ax[1].plot(log_df['BC Loss'], label='BC Loss')
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Loss')
+    ax[1].set_yscale('log')
+    ax[1].set_title('Individual Loss Terms over Epochs')
+    ax[1].legend()
+
+    # Plot Weights
+    ax[2].plot(log_df['lambda PDE'], label='lambda PDE')
+    ax[2].plot(log_df['lambda IC1'], label='lambda IC1')
+    ax[2].plot(log_df['lambda IC2'], label='lambda IC2')
+    ax[2].plot(log_df['lambda BC'], label='lambda BC')
+    ax[2].set_xlabel('Epochs')
+    ax[2].set_ylabel('Weight')
+    ax[2].set_title('Weights Applied to Loss Terms over Epochs')
+    ax[2].legend()
 
     plt.tight_layout()
     plt.show()
@@ -219,12 +238,13 @@ plt.figure(figsize=size, dpi=quality)
 # Plot the predictions 
 
 # Generate interpolation prediction
-t_domain_inter = (0, 4)
-u_interpolation,x_space_inter,t_space_inter = calc_ground_truth(x_domain, t_domain_inter)
+t_domain_inter = (0, 3)
+x_domain_inter = (-1, 1)
+u_interpolation,x_space_inter,t_space_inter = calc_ground_truth(x_domain_inter, t_domain_inter)
 # Plot the interpolation ground truth solution
 plt.figure(figsize=size, dpi=quality)
 
-plt.imshow(u_interpolation, extent=[*x_domain, *t_domain_inter], aspect='auto', cmap='viridis')
+plt.imshow(u_interpolation, extent=[*x_domain_inter, *t_domain_inter], aspect='auto', cmap='viridis')
 ## add a  line to show the interpolation time
 plt.plot(x_space_inter, np.ones_like(x_space_inter)*2, color='red', linewidth=2, linestyle='--')
 plt.title('Wave Propagation')
@@ -268,7 +288,7 @@ ax[1].set_ylabel('t')
 ax[1].set_title('Model Predictions')
 
 # Plot the ground truth solution
-image = ax[0].imshow(u_interpolation, extent=[*x_domain, *t_domain_inter], aspect='auto', cmap='viridis')
+image = ax[0].imshow(u_interpolation, extent=[*x_domain_inter, *t_domain_inter], aspect='auto', cmap='viridis')
 ax[0].plot(x_space_inter, np.ones_like(x_space_inter)*2, color='red', linewidth=2, linestyle='--')
 ax[0].set_title('Ground Truth')
 ax[0].set_xlabel('x')
