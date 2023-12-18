@@ -121,6 +121,9 @@ def boundary_condition(model: nn.Module, batch_features, device, boundaries: tup
     # boundary domain is in 'x'
     neg_bc, pos_bc = boundaries
     t = batch_features[:, 1]
+    # random subsample of t
+    t = t[torch.randperm(len(t))[:len(t)//2]]
+
     x_neg_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True, device=device)*neg_bc
     x_pos_bc = torch.ones(len(t), dtype=torch.float32, requires_grad=True, device=device)*pos_bc
 
@@ -369,6 +372,8 @@ def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive,
     log_csv_path = os.path.join(exp_folder, 'logs', 'training_log.csv')
     log_df.to_csv(log_csv_path, index=False)
 
+    return best_loss
+
 
 def setup_model(conf): #! TODO
     """
@@ -407,7 +412,7 @@ def get_scheduler(conf):
         scheduler = CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=one_cycle, T_mult=1, eta_min=0, last_epoch=-1, verbose=False)
     elif scheduler_name == 'CyclicLR':
         scheduler = CyclicLR(optimizer=optimizer, base_lr=conf['training']['learning_rate']/10, max_lr=conf['training']['learning_rate'], 
-                             step_size_up=int(one_cycle/2), mode='triangular2', last_epoch=-1, verbose=False)
+                             step_size_up=int(one_cycle/2), mode='triangular2', cycle_momentum=False, last_epoch=-1, verbose=False,)
     else:
         scheduler = None
     return scheduler
@@ -466,16 +471,17 @@ if __name__ == '__main__':
     writer = SummaryWriter(os.path.join('runs', exp_id)) if tensorboard else None
 
     print(f'Training with parameters \n{pinn}\n')
-    train(pinn=pinn, 
-          optimizer=optimizer, 
-          dataloader=dataloader, 
-          boundaries=x_domain, 
-          epochs=epochs, 
-          exp_folder=exp_folder,
-          adaptive=conf['training']['adaptive'], 
-          device=device,
-          scheduler=scheduler, 
-          n_logs=conf['logging']['n_logs'],
-          physics=conf['physics'],)
+    best_loss = train(pinn=pinn, 
+                    optimizer=optimizer, 
+                    dataloader=dataloader, 
+                    boundaries=x_domain, 
+                    epochs=epochs, 
+                    exp_folder=exp_folder,
+                    adaptive=conf['training']['adaptive'], 
+                    device=device,
+                    scheduler=scheduler, 
+                    n_logs=conf['logging']['n_logs'],
+                    physics=conf['physics'],)
 
     writer.close() if tensorboard else None
+    print(f'Experiment {exp_id} finished. Lowest loss: {best_loss}')

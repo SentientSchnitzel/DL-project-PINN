@@ -72,11 +72,11 @@ if logging_plots:
     # Plot Total Loss
     ax[0].plot(x_ticks, log_df['Total Loss'], label='Total Loss')
     # Annotate the minimum loss
-    text_offset = 50
+    text_offset = 100
     ax[0].annotate(f'min loss:\n{min_loss_value:.5f}',
                xy=(min_loss_epoch, min_loss_value),
-               xytext=(min_loss_epoch - text_offset, min_loss_value*2),  # Move text to the left
-               arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=5),
+               xytext=(min_loss_epoch - text_offset, min_loss_value*100),
+            #    arrowprops=dict(facecolor='black', shrink=1, width=1, headwidth=3),
                horizontalalignment='center',
                verticalalignment='center')
 

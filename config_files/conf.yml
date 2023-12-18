@@ -1,5 +1,5 @@
 training:
-  learning_rate: 0.01
+  learning_rate: 0.1
   epochs: 2000
   optimizer: adam
   hidden_dim: 32
@@ -14,7 +14,7 @@ logging:
   n_logs: 100 # number of times there is a log of loss etc
 
 data:
-  batch_size: 32 # set-1 for no minibatching
+  batch_size: 16 # set-1 for no minibatching
   t_domain: [0,2]
   x_domain: [-1,1]
   num_collocation_points: 1000
