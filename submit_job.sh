@@ -1,5 +1,5 @@
 #!/bin/sh
-#BSUB -q gpuv100
+#BSUB -q gpua100
 #BSUB -J wave_eq_pinn
 #BSUB -n 4
 #BSUB -R "span[hosts=1]"
