@@ -135,7 +135,7 @@ def boundary_condition(model: nn.Module, features, device, boundaries: tuple):
     return loss
 
 
-def pde_loss(prediction: torch.tensor, features, device, v, epoch):
+def pde_loss(model: nn.Module, features, device, v, epoch):
     """
     prediction: N length tensor of u(x, t)
     features: N length tensor of (x, t)
@@ -144,6 +144,16 @@ def pde_loss(prediction: torch.tensor, features, device, v, epoch):
     equation:
     u_tt - v**2 * u_xx = 0
     """
+
+    # # Create a mask by broadcasting
+    # mask = torch.ones(num_samples, 2).to(device)
+    # mask[cutoff:, :] = 0.0
+    # model_pde = model_pde * mask
+
+    cutoff = int(features.shape[0] * epoch / epochs)
+    features = features[:cutoff, :]
+    prediction = model(features)
+
     u_grad_grad, _ = gradient(prediction, features, order=2)
     u_xx = u_grad_grad[:, 0]
     u_tt = u_grad_grad[:, 1]
@@ -151,15 +161,6 @@ def pde_loss(prediction: torch.tensor, features, device, v, epoch):
     #compute the loss
     model_pde = (u_tt - v**2 * u_xx)
 
-
-    # Create a tensor by broadcasting
-    tensor = torch.ones(num_samples, num_samples).to(device)
-
-    cutoff = int(num_samples * epoch / epochs)
-
-    tensor[cutoff:, :] = 0.0
-
-    model_pde = model_pde[:,] * tensor
 
     """
     # Create a linearly decreasing pattern from 1 to 0
@@ -219,10 +220,10 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
         if epoch == 8000:
             optimizer = optim.Adam(pinn.parameters(), lr=1e-5, weight_decay=1e-5)
         
-        u_pred = pinn(features)
+        # u_pred = pinn(features)
 
         # PDE physics loss
-        loss_pde = pde_loss(u_pred, features, device, v=v, epoch=epoch)
+        loss_pde = pde_loss(pinn, features, device, v=v, epoch=epoch)
 
         # print_IC1 = True if epoch % 499 == 0 and epoch != 0 else False
         # IC physics loss
@@ -255,7 +256,7 @@ def train(pinn, criterion, optimizer, features, boundaries, v, epochs, save_path
         
         # Change 5: Update the loss function with the linear combination of all components.
         loss = adapt_weights[0]*loss_pde + adapt_weights[1]*loss_ic1 + adapt_weights[2]*loss_ic2 + adapt_weights[3]*loss_bc
-        #loss = loss_ic1
+        # loss = loss_ic1
 
         loss.backward()         # Backward pass: Compute gradient of the loss with respect to model parameters
         optimizer.step()        # Update weights
@@ -346,12 +347,11 @@ if __name__ == '__main__':
     x_samples = np.random.uniform(*boundaries, num_samples)
     t_samples = np.random.uniform(0, T, num_samples)
 
-    x_samples = np.sort(x_samples)
-    t_samples = np.sort(t_samples)
-
     features = np.column_stack((x_samples, t_samples))
     features_ = torch.tensor(features, dtype=torch.float32, requires_grad=True).reshape(-1, 2).to(device)
-    
+    # sort features by second column (time) and keep pairings of observations.
+    sorted_features_ = features_[torch.argsort(features_[:, 1])]
+
 
     # defining model
     pinn = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2).to(device)
@@ -365,8 +365,8 @@ if __name__ == '__main__':
     print(f'Training with parameters \n{pinn}\n')
     train(pinn=pinn, 
           criterion=criterion, optimizer=optimizer, 
-          features=features_, 
+          features=sorted_features_, 
           boundaries=boundaries, v=v, 
           epochs=epochs, save_path=exp_folder,
-          adaptive=True, device=device)
+          adaptive=False, device=device)
 
