@@ -7,9 +7,10 @@ import yaml
 
 import torch 
 from torch import nn, optim
+from torch.nn import init
 from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR, LinearLR, OneCycleLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau, LinearLR, OneCycleLR, CosineAnnealingWarmRestarts, CyclicLR
 
 from tqdm import tqdm
 
@@ -35,7 +36,7 @@ def next_experiment_number(base_dir):
 
 
 class Net(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim, n_layers):
+    def __init__(self, input_dim, output_dim, hidden_dim, n_layers, dropout_rate, initialization):
         
         super(Net, self).__init__()
 
@@ -43,19 +44,28 @@ class Net(nn.Module):
 
         self.input = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), 
-            activation()
+            activation(),
+            nn.Dropout(dropout_rate)
         )
         
         self.network = nn.Sequential(
             *[nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
-                activation()
+                activation(),
+                nn.Dropout(dropout_rate)
             ) for i in range(n_layers)]
         )
 
         self.output = nn.Sequential(
             nn.Linear(hidden_dim, output_dim)
         )
+        
+        # He/Kaiming init for relu descendent softplus
+        if initialization:
+            init.kaiming_normal_(self.input[0].weight, nonlinearity='relu')
+            for layer in self.network:
+                init.kaiming_normal_(layer[0].weight, nonlinearity='relu')
+            init.kaiming_normal_(self.output[0].weight, nonlinearity='linear')
 
     def forward(self, x):
         x = self.input(x)
@@ -78,23 +88,18 @@ def gradient(outputs, inputs, order=1):
     return outputs, grads
 
 
-def initial_condition_1(model: nn.Module, batch_features, device):
-    # Gaussian source
-    
-    x0 = 0 # positions of the source
-    sigma0 = 0.2 # width of the frequency
-    a = 1 # amplitude of the source
+def initial_condition_1(model: nn.Module, batch_features, x0, sigma, amplitude, device):
 
     x = batch_features[:, 0] # take x-features from batch
     t = torch.zeros_like(x, requires_grad=True, device=device) # set t=0 for all x
     coll_points = torch.column_stack((x, t)) # concatenate x and t
 
-    pressure0 = a*torch.exp(-((x - x0)/sigma0)**2).to(device).reshape(-1, 1)
+    pressure0 = amplitude*torch.exp(-((x - x0)/sigma)**2).to(device).reshape(-1, 1)
     pred_pressure0 = model(coll_points)
     loss = torch.mean((pressure0 - pred_pressure0)**2)
 
     # print(f'IC1 loss: {loss.item()},\nPressure_true {pressure0[:10]},\nPressure_pred {pred_pressure0[:10]}') if print_values else None
-    return loss, pressure0, pred_pressure0
+    return loss #pressure0, pred_pressure0
 
 
 def initial_condition_2(model: nn.Module, batch_features, device):
@@ -160,7 +165,7 @@ def pde_loss(model: nn.Module, batch_f, device, v, epoch, epochs):
     # print(loss)
     return loss
 
-def generate_dataloader(x_domain, t_domain, num_samples, v, batch_size, device):
+def generate_dataloader(x_domain, t_domain, num_samples, batch_size, device):
     """
     Generates data for the wave equation PINN.
     """
@@ -178,7 +183,7 @@ def generate_dataloader(x_domain, t_domain, num_samples, v, batch_size, device):
     return dataloader
 
 
-def train(pinn, criterion, optimizer, dataloader, boundaries, v, epochs, exp_folder, adaptive, device, scheduler, n_logs):
+def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive, device, scheduler, n_logs, physics):
     """
     pinn:       PINN model
     criterion:  loss function
@@ -207,6 +212,12 @@ def train(pinn, criterion, optimizer, dataloader, boundaries, v, epochs, exp_fol
     values_comp3 = []
     values_comp4 = []
 
+
+    # unpack physics
+    v = physics['wave_speed']
+    sigma = physics['sigma']
+    x0 = physics['x0']
+    amplitude = physics['amplitude']
 
     # logging
     n_logs = n_logs
@@ -246,8 +257,7 @@ def train(pinn, criterion, optimizer, dataloader, boundaries, v, epochs, exp_fol
             batch_loss_pde = pde_loss(pinn, batch_features, device, v=v, epoch=epoch, epochs=epochs)
 
             # IC physics loss
-            batch_loss_ic1, pres0, pred_pres0 = initial_condition_1(pinn, batch_features, device)
-            # TODO: find a way to concat all pred_pres0 to plot their behaviour later
+            batch_loss_ic1 = initial_condition_1(pinn, batch_features, x0, sigma, amplitude, device)
             batch_loss_ic2 = initial_condition_2(pinn, batch_features, device)
 
             # BC physics loss
@@ -262,7 +272,6 @@ def train(pinn, criterion, optimizer, dataloader, boundaries, v, epochs, exp_fol
 
             # Update the loss function with the SoftAdapt weighted components
             loss = adapt_weights[0]*batch_loss_pde + adapt_weights[1]*batch_loss_ic1 + adapt_weights[2]*batch_loss_ic2 + adapt_weights[3]*batch_loss_bc
-            # loss = batch_loss_ic1
 
             loss.backward()     # Backward pass: Compute gradient of the loss with respect to model parameters
             optimizer.step()    # Update weights
@@ -361,23 +370,6 @@ def train(pinn, criterion, optimizer, dataloader, boundaries, v, epochs, exp_fol
     log_df.to_csv(log_csv_path, index=False)
 
 
-def get_arguments(parser):
-    """
-    Get arguments from parser.
-    """
-    parser.add_argument('--exp_id', type=str, default=None, help='Optional experiment identifier (3-digit number).')
-    parser.add_argument('--conf_path', type=str, default='config_files/conf.yml' , help='Path to JSON config file.')
-    args = parser.parse_args()
-    return args
-
-def get_config(conf_path):
-    """
-    Get config from yaml file.
-    """
-    with open(conf_path) as file:
-        conf = yaml.load(file, Loader=yaml.FullLoader)
-    return conf
-
 def setup_model(conf): #! TODO
     """
     Setup model from config.
@@ -389,74 +381,101 @@ def setup_model(conf): #! TODO
 
     pass
 
-def create_folder_structure(exp_id): #! TODO
+    
+def get_scheduler(conf):
     """
-    Create folder structure for experiment.
+    Get scheduler from a string-name.
+    """
+
+    epochs = conf['training']['epochs']
+    samples = conf['data']['num_collocation_points']
+    batch_size = conf['data']['batch_size']
+    steps_per_epoch = int(np.floor(samples/batch_size)+1)
+    one_cycle = int(steps_per_epoch * epochs/5)
+
+
+    scheduler_name = conf['training']['scheduler']
+    if scheduler_name == 'ReduceLROnPlateau':
+        scheduler = ReduceLROnPlateau(optimizer, patience=100, factor=0.5, verbose=True)
+    elif scheduler_name == 'LinearLR':
+        scheduler = LinearLR(optimizer=optimizer, start_factor=1, end_factor=0.1, total_iters=2500, last_epoch=-1, verbose=False)
+    elif scheduler_name == 'OneCycleLR':
+        scheduler = OneCycleLR(optimizer=optimizer, max_lr=conf['training']['learning_rate'], 
+                               epochs=epochs, steps_per_epoch=steps_per_epoch, 
+                               pct_start=0.3, anneal_strategy='cos', last_epoch=-1, verbose=False)
+    elif scheduler_name == 'CosineAnnealingWarmRestarts':
+        scheduler = CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=one_cycle, T_mult=1, eta_min=0, last_epoch=-1, verbose=False)
+    elif scheduler_name == 'CyclicLR':
+        scheduler = CyclicLR(optimizer=optimizer, base_lr=conf['training']['learning_rate']/10, max_lr=conf['training']['learning_rate'], 
+                             step_size_up=int(one_cycle/2), mode='triangular2', last_epoch=-1, verbose=False)
+    else:
+        scheduler = None
+    return scheduler
+
+def get_optimizer(conf):
+    """
+    Get the optimizer from a string-name.
     """
     pass
 
-#%% RUN
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Run wave equation PINN experiment.')
     args = get_arguments(parser)
-
+    conf = get_config(args.conf_path)
 
     # handle missing exp_id argument
     exp_id = args.exp_id if args.exp_id else next_experiment_number('experiments')
 
-    conf = get_config(args.conf_path)
-    tensorboard = conf['logging']['tensorboard']
-    n_logs = conf['logging']['n_logs']
-
-
     # create folders
-    os.makedirs('experiments', exist_ok=True) # create experiments folder if it doesn't exist
-    exp_folder = os.path.join('experiments', exp_id)
-    os.makedirs(exp_folder, exist_ok=True)
-    os.makedirs(os.path.join(exp_folder, 'logs'), exist_ok=True)
-    os.makedirs(os.path.join(exp_folder, 'checkpoints'), exist_ok=True)
-    os.makedirs(os.path.join(exp_folder, 'best_model'), exist_ok=True)
-    print(f'Experiment ID: {exp_id}')
-
-    # set device
+    exp_folder = create_folder_structure(exp_id) # returns the experiment folder path
     device = get_device(verbose=True)
-
+    with open(os.path.join(exp_folder, 'conf.yml'), 'w') as file:
+        yaml.dump(conf, file)
     
+
+    # "data" creation
     x_domain = conf['data']['x_domain']
     t_domain = conf['data']['t_domain']
-    v = conf['data']['wave_speed']
+    
     num_samples = conf['data']['num_collocation_points']
     batch_size = conf['data']['batch_size'] if conf['data']['batch_size'] != -1 else num_samples # -1 batch size mean no minibatching
-
-    # data generation
     dataloader = generate_dataloader(x_domain=x_domain,
                                      t_domain=t_domain,
                                      num_samples=num_samples, 
-                                     v=v, 
                                      batch_size=batch_size, 
                                      device=device)
 
 
     ### MODEL HYPERPARAMETERS
-    epochs = conf['training']['num_epochs']
+    epochs = conf['training']['epochs']
 
-    pinn = Net(input_dim=2, output_dim=1, hidden_dim=32, n_layers=2).to(device)
-    optimizer = optim.Adam(pinn.parameters(), lr=1e-2)
+    pinn = Net(input_dim=2, 
+               output_dim=1, 
+               hidden_dim=conf['training']['hidden_dim'], 
+               n_layers=conf['training']['n_layers'],
+               dropout_rate=conf['training']['dropout_rate'],
+               initialization=conf['training']['initialization'],
+               ).to(device)
+    optimizer = optim.Adam(pinn.parameters(), lr=conf['training']['learning_rate'],)
+    scheduler = get_scheduler(conf)
 
-    scheduler = None
-    scheduler = OneCycleLR(optimizer=optimizer, max_lr=1e-2, epochs=2000, steps_per_epoch=int(np.floor(num_samples/batch_size)+1), pct_start=0.3, anneal_strategy='cos', last_epoch=-1, verbose=False)
 
     # TensorBoard writer
+    tensorboard = conf['logging']['tensorboard']
     writer = SummaryWriter(os.path.join('runs', exp_id)) if tensorboard else None
 
     print(f'Training with parameters \n{pinn}\n')
     train(pinn=pinn, 
-          criterion=None, optimizer=optimizer, 
+          optimizer=optimizer, 
           dataloader=dataloader, 
-          boundaries=x_domain, v=v, 
-          epochs=epochs, exp_folder=exp_folder,
-          adaptive=True, device=device,
-          scheduler=scheduler, n_logs=n_logs)
+          boundaries=x_domain, 
+          epochs=epochs, 
+          exp_folder=exp_folder,
+          adaptive=conf['training']['adaptive'], 
+          device=device,
+          scheduler=scheduler, 
+          n_logs=conf['logging']['n_logs'],
+          physics=conf['physics'],)
 
     writer.close() if tensorboard else None
