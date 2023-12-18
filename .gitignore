@@ -47,3 +47,8 @@ build/
 
 # Miscs
 *.pdf
+submit_job.sh
+act_venv.sh
+submit_job.sh
+submit_job.sh
+*.sh
