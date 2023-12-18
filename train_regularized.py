@@ -105,7 +105,7 @@ def initial_condition_1(model: nn.Module, batch_features, device,x0,x02):
 
 
 
-
+ 
 
 def initial_condition_2(model: nn.Module, batch_features, device):
     # v = 0 for t = 0 
