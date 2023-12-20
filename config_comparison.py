@@ -66,9 +66,16 @@ if "__main__" == __name__:
 
     ?find out how hyperparameters affect the model's performance
     """
-    exps = ['127', '128', ]
+    exps = ['132'] # ['127', '128', ]
     exps_dirs = [os.path.join('experiments', exp) for exp in exps]
     
+    for exp_dir in exps_dirs:
+        configs_losses = pd.read_csv(os.path.join(exp_dir, 'configs_losses.csv'), index_col=False)
+        configs_losses = configs_losses[configs_losses["loss"] > 0.0] # filter out 0.0-losses from non-reached epochs
+        min_idx = configs_losses["loss"].argmin()
+        print(f'Best run for {exp_dir}: \n{configs_losses}')
+
+
     losses_and_hparams = {}
     for exp_dir in exps_dirs:
         exp_losses_and_hparams = extract_min_losses_and_hparams(exp_dir)
@@ -82,27 +89,24 @@ if "__main__" == __name__:
         losses_and_hparams[exp_dir] = top10
         
 
-    # find the ultimate top 10 by sorting the losses_and_hparams dict by the value
-    
-    
+    # find the ultimate top 10
+    all_losses_hparams = []
+    for exp_dir, loss_hparam_pairs in losses_and_hparams.items():
+        all_losses_hparams.extend(loss_hparam_pairs) # unpacks loss-hparam pairs into a list
+    top_10 = sorted(all_losses_hparams, key=lambda x: x[0])[:10]
+    top_10_losses = [pair[0] for pair in top_10]
+    top_10_hparams = [pair[1] for pair in top_10]
 
-    # horizontal bar chart of the 10 runs with the lowest losses
-    plt.figure(figsize=(16,8), dpi=100)
-    plt.barh(range(len(min_losses)), min_losses)
+    # Plot the top 10 losses
+    plt.figure(figsize=(16, 8), dpi=100)
+    plt.barh(range(len(top_10_losses)), top_10_losses)
     plt.xlabel("Minimum Loss")
     plt.xscale("log")
-    plt.ylabel("Run")
-    # insert the minimum loss values as text next to the bars
-    for i, v in enumerate(min_losses):
+    plt.ylabel("Run Index")
+    # Annotate the bar plot with loss values
+    for i, v in enumerate(top_10_losses):
         plt.text(v, i - 0.1, f"{v:.2e}")
-    # plt.xlim(0, max(min_losses) * 1.1)
-    # insert name of the run as y-tick labels
-    plt.yticks(range(len(min_runs)), min_runs)
-
-
     plt.title(f"10 best run configs by loss. BS: {1}, Adaptive: false")
     plt.show()
-        
-        # min_losses = [losses[i] for i in min_indices] # extract the 10 lowest losses
-        # min_runs = [runs[i] for i in min_indices] # extract the dir names --||--
-        # min_configs = [os.path.join(exp_dir, run, "run_config.yml") for run in min_runs] # extract the config paths
+
+    print(f'Best 10 runs: {[pair for pair in top_10_hparams]}')
