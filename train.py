@@ -591,6 +591,6 @@ if __name__ == '__main__':
         print(f'Configuration {i} finished. Lowest loss: {best_loss} from configuration {config_path}')
     
     # save the results of the tuning
-    configs_losses_df = pd.DataFrame.from_dict(configs_losses, orient='index', columns=['loss'])
+    configs_losses_df = pd.DataFrame.from_dict(configs_losses, orient='index', columns=['Total Loss'])
     configs_losses_df.to_csv(os.path.join(exp_folder, 'configs_losses.csv'))
     print(f'Experiment {exp_id} finished. Lowest loss: {best_loss} from configuration {config_path}')

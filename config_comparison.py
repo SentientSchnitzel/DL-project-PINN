@@ -66,14 +66,14 @@ if "__main__" == __name__:
 
     ?find out how hyperparameters affect the model's performance
     """
-    exps = ['132'] # ['127', '128', ]
+    exps = ['127', '128', ] # ['132'] 
     exps_dirs = [os.path.join('experiments', exp) for exp in exps]
     
-    for exp_dir in exps_dirs:
-        configs_losses = pd.read_csv(os.path.join(exp_dir, 'configs_losses.csv'), index_col=False)
-        configs_losses = configs_losses[configs_losses["loss"] > 0.0] # filter out 0.0-losses from non-reached epochs
-        min_idx = configs_losses["loss"].argmin()
-        print(f'Best run for {exp_dir}: \n{configs_losses}')
+    # for exp_dir in exps_dirs:
+    #     configs_losses = pd.read_csv(os.path.join(exp_dir, 'configs_losses.csv'), index_col=False)
+    #     configs_losses = configs_losses[configs_losses["loss"] > 0.0] # filter out 0.0-losses from non-reached epochs #! change "loss" to "Total Loss" for new logs
+    #     min_idx = configs_losses["loss"].argmin()
+    #     print(f'Best run for {exp_dir}: \n{configs_losses}')
 
 
     losses_and_hparams = {}
@@ -109,4 +109,4 @@ if "__main__" == __name__:
     plt.title(f"10 best run configs by loss. BS: {1}, Adaptive: false")
     plt.show()
 
-    print(f'Best 10 runs: {[pair for pair in top_10_hparams]}')
+    [print(f'Best 10 runs: loss: {loss} with {hp}') for loss, hp in top_10]
