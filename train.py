@@ -4,6 +4,8 @@ import os
 import argparse
 import re
 import yaml
+import itertools
+
 
 import torch 
 from torch import nn, optim
@@ -168,10 +170,15 @@ def pde_loss(model: nn.Module, batch_f, device, v, epoch, epochs):
     # print(loss)
     return loss
 
-def generate_dataloader(x_domain, t_domain, num_samples, batch_size, device):
+
+def generate_dataloader(x_domain, t_domain, conf, device):
     """
     Generates data for the wave equation PINN.
     """
+
+    num_samples = conf['data']['num_collocation_points']
+    batch_size = conf['data']['batch_size'] if conf['data']['batch_size'] != -1 else num_samples # -1 batch size mean no minibatching
+
     # data generation
     x_samples = np.random.uniform(*x_domain, num_samples)
     t_samples = np.random.uniform(*t_domain, num_samples)
@@ -186,16 +193,23 @@ def generate_dataloader(x_domain, t_domain, num_samples, batch_size, device):
     return dataloader
 
 
-def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive, device, scheduler, n_logs, physics):
+def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive, device, scheduler, n_logs, physics, patience):
     """
-    pinn:       PINN model
-    criterion:  loss function
-    optimizer:  optimizer
-    dataloader: torch dataloader
-    boundaries: tuple of boundary values
-    v:          wave speed
-    epochs:     number of epochs
-    save_path:  path to save the model
+    Trains a Physics Informed Neural Network (PINN).
+
+    Args:
+    pinn: the PINN model
+    optimizer: optimizer object
+    dataloader: torch DataLoader object containing batches
+    boundaries: the boundary conditions for the PDE problem.
+    epochs: the number of epochs to train for.
+    exp_folder: experiment folder path
+    adaptive: whether to use adaptive weights or not
+    device: torch device
+    scheduler: learning rate scheduler object
+    n_logs: number of loggings throughout training
+    physics: variables for the physics of the problem (wave speed, sigma, x0, amplitude)
+    patience: early stopping patience
     """
 
     # tracking best model
@@ -341,15 +355,23 @@ def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive,
             writer.add_scalar('Lambda/IC2', adapt_weights[2], epoch)
             writer.add_scalar('Lambda/BC', adapt_weights[3], epoch)
 
-        # save model at 1/10 of epochs
-        if epoch % (epochs // 10) == 0 and epoch != 0:
+        # save model at 1/5 of epochs
+        if epoch % (epochs // 5) == 0 and epoch != 0:
             checkpoint_path = os.path.join(exp_folder, 'checkpoints', f'model_epoch_{epoch}.pt')
             torch.save(pinn.state_dict(), checkpoint_path)
 
+        # save best model and early stopping criteria
         current_loss = loss_total
         if current_loss < best_loss:
             best_loss = current_loss
             best_model_state = pinn.state_dict()
+            
+            early_stopping_counter = 0
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= patience:
+                print(f'Early stopping at epoch {epoch+1}.')
+                break
 
 
     # save best model
@@ -375,28 +397,37 @@ def train(pinn, optimizer, dataloader, boundaries, epochs, exp_folder, adaptive,
     return best_loss
 
 
-def setup_model(conf): #! TODO
+def setup_model(Net, conf):
     """
-    Setup model from config.
+    Setup model from config dict.
     """
+    pinn = Net(input_dim=2, 
+                output_dim=1, 
+                hidden_dim=conf['training']['hidden_dim'], 
+                n_layers=conf['training']['n_layers'],
+                dropout_rate=conf['training']['dropout_rate'],
+                initialization=conf['training']['initialization'],
+                ).to(device)
+    optimizer = get_optimizer(pinn, conf)
+    scheduler = get_scheduler(optimizer, conf)
 
-    # scheduler = ReduceLROnPlateau(optimizer, patience=100, factor=0.5, verbose=True)
-    # scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
-    # scheduler = LinearLR(optimizer=optimizer, start_factor=1, end_factor=0.1, total_iters=2500, last_epoch=-1, verbose=False)
-
-    pass
+    return pinn, optimizer, scheduler
 
     
-def get_scheduler(conf):
+def get_scheduler(optimizer, conf):
     """
     Get scheduler from a string-name.
     """
 
     epochs = conf['training']['epochs']
-    samples = conf['data']['num_collocation_points']
-    batch_size = conf['data']['batch_size']
-    steps_per_epoch = int(np.floor(samples/batch_size)+1)
-    one_cycle = int(steps_per_epoch * epochs/5)
+    if conf['data']['batch_size'] != -1: # if batch_size is not -1, we use some size of mini-batches
+        samples = conf['data']['num_collocation_points']
+        batch_size = conf['data']['batch_size']
+        steps_per_epoch = int(np.ceil(samples/batch_size))
+        one_cycle = int(steps_per_epoch * epochs/5)
+    else:
+        steps_per_epoch = 1
+        one_cycle = int(epochs/5)
 
 
     scheduler_name = conf['training']['scheduler']
@@ -408,80 +439,158 @@ def get_scheduler(conf):
         scheduler = OneCycleLR(optimizer=optimizer, max_lr=conf['training']['learning_rate'], 
                                epochs=epochs, steps_per_epoch=steps_per_epoch, 
                                pct_start=0.3, anneal_strategy='cos', last_epoch=-1, verbose=False)
-    elif scheduler_name == 'CosineAnnealingWarmRestarts':
+    elif scheduler_name == 'CosineAnnealingWarmRestarts' or scheduler_name == 'CAWR': # accept both long and short name
         scheduler = CosineAnnealingWarmRestarts(optimizer=optimizer, T_0=one_cycle, T_mult=1, eta_min=0, last_epoch=-1, verbose=False)
-    elif scheduler_name == 'CyclicLR':
+    elif scheduler_name == 'CyclicLR' or scheduler_name == 'Cycl': # accept both long and short name
         scheduler = CyclicLR(optimizer=optimizer, base_lr=conf['training']['learning_rate']/10, max_lr=conf['training']['learning_rate'], 
                              step_size_up=int(one_cycle/2), mode='triangular2', cycle_momentum=False, last_epoch=-1, verbose=False,)
     else:
         scheduler = None
     return scheduler
 
-def get_optimizer(conf):
+
+def get_optimizer(model: nn.Module, conf):
     """
     Get the optimizer from a string-name.
     """
-    pass
+    optimizer_name = conf['training']['optimizer']
+    L2_penalty = conf['training']['L2_penalty']
+    if optimizer_name == 'Adam':
+        optimizer = optim.Adam(model.parameters(), lr=conf['training']['learning_rate'])
+    elif optimizer_name == 'AdamW':
+        optimizer = optim.AdamW(model.parameters(), lr=conf['training']['learning_rate'], weight_decay=L2_penalty)
+    elif optimizer_name == 'SGD':
+        optimizer = optim.SGD(model.parameters(), lr=conf['training']['learning_rate'], momentum=0.9, weight_decay=L2_penalty)
+    else:
+        raise ValueError(f'Optimizer {optimizer_name} not implemented. Please choose from: Adam, SGD.')
+    return optimizer
+
+def setup_tuneable_configurations(conf):
+    """
+    Setup tuning from config.
+    """
+    # adaptive and batch_size tunings are run as overall experiments, so we can distribute 
+    # the work to different machines and get results faster.
+
+    # define shorthand for config file names
+    param_names = [
+    'lr',       # learning rate
+    'hdim',     # hidden dimension
+    'lay',      # number of layers
+    'rate',     # dropout rate 
+    'sched',    # scheduler
+    # 'adaptive', 
+    # 'batch_size', 
+    ]
+    
+    configurations = [
+    dict(zip(param_names, config))
+    for config in itertools.product(
+        conf['training']['learning_rate'],
+        conf['training']['hidden_dim'],
+        conf['training']['n_layers'],
+        conf['training']['dropout_rate'],
+        conf['training']['scheduler'],
+        # conf['training']['adaptive'],
+        # conf['data']['batch_size'],
+        )
+    ]
+
+    return configurations, param_names
+
+
+def create_dir_name(config):
+    # Create a list of formatted key-value pairs
+    key_value_pairs = [f"{key}_{str(value).replace('.', '_')}" for key, value in config.items()]
+    
+    # Join the pairs into a single config-string separated by underscores
+    config_name = "_".join(key_value_pairs)
+    return config_name
+
+def update_config_file(base_config, update_config, config_path):
+    """
+    updates the baseline configuration with the new hyperparameters for a specific run.
+    """
+    # overwrite the config yaml file for this specific run
+    base_config['training']['learning_rate'] = update_config['lr']
+    base_config['training']['hidden_dim'] = update_config['hdim']
+    base_config['training']['n_layers'] = update_config['lay']
+    base_config['training']['dropout_rate'] = update_config['rate']
+    base_config['training']['scheduler'] = update_config['sched']
+    # save the config file in the folder for this run.
+    with open(os.path.join(config_path, 'run_config.yml'), 'w') as file:
+        yaml.dump(base_config, file)
+    return base_config
+
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Run wave equation PINN experiment.')
     args = get_arguments(parser)
-    conf = get_config(args.conf_path)
+    base_conf = get_config(args.conf_path)
 
     # handle missing exp_id argument
     exp_id = args.exp_id if args.exp_id else next_experiment_number('experiments')
 
     # create folders
-    exp_folder = create_folder_structure(exp_id) # returns the experiment folder path
+    exp_folder = create_exp_folder(exp_id) # returns the experiment folder path
+    print(f"With batch size : {base_conf['data']['batch_size']} and adaptive : {base_conf['training']['adaptive']}")
+    
     device = get_device(verbose=True)
-    with open(os.path.join(exp_folder, 'conf.yml'), 'w') as file:
-        yaml.dump(conf, file)
+
+    # unpack feature domains x and t
+    x_domain = base_conf['data']['x_domain']
+    t_domain = base_conf['data']['t_domain']
+    run_conf = base_conf.copy() # initialize run_conf with the same values as conf, which later will be overwritten
+    # save the config file in the folder for this experiment.
+    with open(os.path.join(exp_folder, 'exp_config.yml'), 'w') as file:
+        yaml.dump(base_conf, file)
+
+    configurations, param_names = setup_tuneable_configurations(base_conf)
+    configs_losses = {}
+    ### Tuning loop
+    for i, config in enumerate(configurations):
+        # say which configuration we are running
+        print(f'Configuration {i} with hyperparameters: {config}')
+        
+        # create appropriate folders for the config
+        config_name = create_dir_name(config)
+        config_path = os.path.join(exp_folder, config_name)
+        os.makedirs(config_path, exist_ok=True) # make the directory
+        create_config_dir_structure(config_path) # logs, checkpoints, figures, best_model
+        run_conf = update_config_file(base_config=run_conf, update_config=config, config_path=config_path)
+        dataloader = generate_dataloader(x_domain=x_domain,
+                                        t_domain=t_domain,
+                                        conf=run_conf,
+                                        device=device)
+        
+        ### MODEL SPECIFICATION
+        pinn, optimizer, scheduler = setup_model(Net, run_conf)
+
+        # TensorBoard writer
+        tensorboard = run_conf['logging']['tensorboard']
+        writer = SummaryWriter(os.path.join('runs', exp_id)) if tensorboard else None
+
+        print(f'Training with parameters, \n{pinn}\noptimizer, \n{optimizer}\nand learning rate scheduler, \n{scheduler} ')
+        best_loss = train(pinn=pinn, 
+                        optimizer=optimizer, 
+                        dataloader=dataloader, 
+                        boundaries=x_domain, 
+                        epochs=run_conf['training']['epochs'], 
+                        exp_folder=config_path,
+                        adaptive=run_conf['training']['adaptive'], 
+                        device=device,
+                        scheduler=scheduler, 
+                        n_logs=run_conf['logging']['n_logs'],
+                        physics=run_conf['physics'],
+                        patience=run_conf['training']['patience'],
+                        )
+        configs_losses[config_name] = best_loss.item()
+
+        writer.close() if tensorboard else None
+        print(f'Configuration {i} finished. Lowest loss: {best_loss} from configuration {config_path}')
     
-
-    # "data" creation
-    x_domain = conf['data']['x_domain']
-    t_domain = conf['data']['t_domain']
-    
-    num_samples = conf['data']['num_collocation_points']
-    batch_size = conf['data']['batch_size'] if conf['data']['batch_size'] != -1 else num_samples # -1 batch size mean no minibatching
-    dataloader = generate_dataloader(x_domain=x_domain,
-                                     t_domain=t_domain,
-                                     num_samples=num_samples, 
-                                     batch_size=batch_size, 
-                                     device=device)
-
-
-    ### MODEL HYPERPARAMETERS
-    epochs = conf['training']['epochs']
-
-    pinn = Net(input_dim=2, 
-               output_dim=1, 
-               hidden_dim=conf['training']['hidden_dim'], 
-               n_layers=conf['training']['n_layers'],
-               dropout_rate=conf['training']['dropout_rate'],
-               initialization=conf['training']['initialization'],
-               ).to(device)
-    optimizer = optim.Adam(pinn.parameters(), lr=conf['training']['learning_rate'],)
-    scheduler = get_scheduler(conf)
-
-
-    # TensorBoard writer
-    tensorboard = conf['logging']['tensorboard']
-    writer = SummaryWriter(os.path.join('runs', exp_id)) if tensorboard else None
-
-    print(f'Training with parameters \n{pinn}\n')
-    best_loss = train(pinn=pinn, 
-                    optimizer=optimizer, 
-                    dataloader=dataloader, 
-                    boundaries=x_domain, 
-                    epochs=epochs, 
-                    exp_folder=exp_folder,
-                    adaptive=conf['training']['adaptive'], 
-                    device=device,
-                    scheduler=scheduler, 
-                    n_logs=conf['logging']['n_logs'],
-                    physics=conf['physics'],)
-
-    writer.close() if tensorboard else None
-    print(f'Experiment {exp_id} finished. Lowest loss: {best_loss}')
+    # save the results of the tuning
+    configs_losses_df = pd.DataFrame.from_dict(configs_losses, orient='index', columns=['loss'])
+    configs_losses_df.to_csv(os.path.join(exp_folder, 'configs_losses.csv'))
+    print(f'Experiment {exp_id} finished. Lowest loss: {best_loss} from configuration {config_path}')
