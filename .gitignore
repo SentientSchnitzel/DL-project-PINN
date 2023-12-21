@@ -5,8 +5,8 @@ __pycache__/
 
 # Logs
 *.log
-./j_errors
-./j_outputs
+j_errors/
+j_outputs/
 
 # Data files
 *.h5
