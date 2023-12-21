@@ -1,0 +1,28 @@
+training:
+  learning_rate: [0.01, 0.05, 0.1]
+  epochs: 3000
+  optimizer: AdamW # either AdamW, Adam or SGD
+  L2_penalty: 0.005 # set 0.005 for L2 penalty or 0.0 for no penalty
+  hidden_dim: [16, 32, 64]
+  n_layers: [1, 2, 4]
+  dropout_rate: [0.0, 0.2, 0.4] # set to 0.0 for no dropout
+  scheduler: [CAWR, Cycl] # set none for no scheduler, options [ OneCycleLR, CAWR (CosineAnnealingWarmRestarts), Cycl (CyclicLR) ]
+  adaptive: true
+  initialization: true # always true
+  patience: 500
+
+logging:
+  tensorboard: false
+  n_logs: 100 # number of times there is a log of loss etc
+
+data:
+  batch_size: 32 # set-1 for no minibatching
+  t_domain: [0,2]
+  x_domain: [-1,1]
+  num_collocation_points: 1000
+
+physics:
+  wave_speed: 1.0
+  sigma: 0.2
+  x0: 0.2
+  amplitude: 1.0
