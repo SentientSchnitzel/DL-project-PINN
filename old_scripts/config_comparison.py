@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import pandas as pd
 import os
@@ -5,8 +6,8 @@ import yaml
 import matplotlib.pyplot as plt
 import torch
 
-from utils import *
 from train import Net
+from utils import *
 
 
 
@@ -41,11 +42,28 @@ def get_relevant_hparams(config):
     return {key: config[key] for key in config if key in relevant_hparams}
 
 
+def get_best_model(model, run_path, device):
+     
+    try:
+        # get the best model
+        best_model_path = os.path.join(run_path, 'best_model', 'best_model.pt')
+        model.load_state_dict(torch.load(best_model_path, map_location=device))
+        print(f'Best model has been loaded')
+    except FileNotFoundError:
+        print(f'No best model found at best_model/best_model.pt.')
+        # get the latest checkpoint
+        checkpoint_folder = os.path.join(run_path, 'checkpoints')
+        checkpoints = os.listdir(checkpoint_folder)
+        checkpoints.sort()
+        checkpoint_path = os.path.join(checkpoint_folder, checkpoints[-1])
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        print(f'Checkpoint {checkpoint_path} has been loaded instead.')
+    return model
 
 
-
+#%%
 if "__main__" == __name__:
-
+    device = get_device()
     
 
 
@@ -66,7 +84,8 @@ if "__main__" == __name__:
 
     ?find out how hyperparameters affect the model's performance
     """
-    exps = ['127', '128', ] # ['132'] 
+    # exps = ['127', '128', ]
+    exps = ['132', '133', ] 
     exps_dirs = [os.path.join('experiments', exp) for exp in exps]
     
     # for exp_dir in exps_dirs:
@@ -76,6 +95,33 @@ if "__main__" == __name__:
     #     print(f'Best run for {exp_dir}: \n{configs_losses}')
 
 
+#%%
+    
+    # get the best model for each run. calc loss. 
+    for exp_dir in exps_dirs:
+        
+        # get all runs
+        runs = os.listdir(exp_dir)
+        runs = [run for run in runs if os.path.isdir(os.path.join(exp_dir, run))] # filter out files
+        for run in runs:
+            run_path = os.path.join(exp_dir, run)
+            run_conf_path = os.path.join(run_path, "run_config.yml")
+            with open(run_conf_path, 'r') as stream:
+                run_conf = yaml.safe_load(stream)
+            
+            # Define your model architecture (must match the saved model)
+            model = Net(input_dim=2, 
+                        output_dim=1, 
+                        hidden_dim=run_conf['training']['hidden_dim'], 
+                        n_layers=run_conf['training']['n_layers'],
+                        dropout_rate=run_conf['training']['dropout_rate'],
+                        initialization=run_conf['training']['initialization']
+                        ).to(device)
+            best_model = get_best_model(model, run_path, device)
+            
+
+
+#%%
     losses_and_hparams = {}
     for exp_dir in exps_dirs:
         exp_losses_and_hparams = extract_min_losses_and_hparams(exp_dir)

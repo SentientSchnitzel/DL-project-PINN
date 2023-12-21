@@ -6,7 +6,7 @@ import argparse
 
 import torch
 
-from wave_eq_ffn import Net  # Replace with your actual model class
+from train_ffnn import Net  # Replace with your actual model class
 from utils import *
 
 

@@ -41,7 +41,7 @@ if __name__ == '__main__':
 
     run_path = args.run_path
 
-    run_conf = get_config(os.path.join(run_path, 'run_config.yml')) # get the config file from the run
+    run_conf = get_config(os.path.join(run_path, 'run_config.yml')) if args.conf_path is None else get_config(args.conf_path)
     figures_folder = os.path.join(run_path, 'figures')
 
     ### yaml arguments
@@ -184,7 +184,6 @@ if __name__ == '__main__':
             u[n + 1, 0] = u[n + 1, 1]
             u[n + 1, -1] = u[n + 1, -2]
 
-        # u = np.flip(u, axis=0)  # flip the array to match the model predictions
         x_space = torch.linspace(*x_domain, Nx)
         t_space = torch.linspace(*t_domain, Nt)
         return u, x_space, t_space
@@ -192,7 +191,7 @@ if __name__ == '__main__':
     ### Finite Difference Ground Truth Solution
     x_domain = run_conf['data']['x_domain']
     t_domain = run_conf['data']['t_domain']
-    t_domain_ext = [ t_domain[0], 1.5 * t_domain[1] ] # extend the time domain for use in extrapolation
+    t_domain_ext = [ t_domain[0], 2 * t_domain[1] ] # extend the time domain for use in extrapolation
     c = run_conf['physics']['wave_speed']
     sigma = run_conf['physics']['sigma']
     source_point = run_conf['physics']['x0']
@@ -207,11 +206,10 @@ if __name__ == '__main__':
     plt.xlabel('Space')
     plt.ylabel('Time')
     plt.colorbar(label='Amplitude')
-    plt.show()
-
+    plt.tight_layout()
     plt.savefig(os.path.join(figures_folder, 'ground_truth.png'))
+    plt.show()
     print(f'Ground truth figure has been saved')
-
 
 
     # Generate predictions over time and space
@@ -221,35 +219,74 @@ if __name__ == '__main__':
     model.eval()  # Set the model to evaluation mode
     with torch.no_grad():
         predictions = model(feature_grid).reshape(X_mesh.shape)
+    
+    print(t_space.shape)
+    print(X_mesh.shape)
+    print(predictions.shape)
+    print(u.shape)
 
     # Plot Model Predictions
     plt.figure(figsize=size, dpi=quality)
     plt.contourf(X_mesh.numpy(), T_mesh.numpy(), predictions.numpy(), levels=100, cmap='viridis')
     plt.colorbar(label='Model Prediction')
-    plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=1)
+    plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=2)
     plt.xlabel('x')
     plt.ylabel('t')
     plt.title('Model Predictions Over Time and Space')
-    plt.show()
-
+    plt.tight_layout()
     plt.savefig(os.path.join(figures_folder, 'model_predictions.png'))
+    plt.show()
     print(f'Prediction figure has been saved')
 
 
+    # plot the ground truth vs the model predictions in same figure
+    min_value = min(u.min(), predictions.numpy().min())
+    max_value = max(u.max(), predictions.numpy().max())
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6), dpi=quality, constrained_layout=True)
 
+    # Plot Ground Truth
+    contour_gt = ax[0].contourf(x_space, t_space, u, levels=100, cmap='viridis', vmin=min_value, vmax=max_value)
+    ax[0].set_title('Ground Truth')
+    ax[0].axhline(y=t_domain[1], color='red', linestyle='--', linewidth=2)
+    ax[0].set_xlabel('x')
+    ax[0].set_ylabel('t')
+    # Plot Model Predictions
+    contour_pred = ax[1].contourf(X_mesh.numpy(), T_mesh.numpy(), predictions.numpy(), levels=100, cmap='viridis', vmin=min_value, vmax=max_value)
+    ax[1].set_title('Model Predictions')
+    ax[1].axhline(y=t_domain[1], color='red', linestyle='--', linewidth=2)
+    ax[1].set_xlabel('x')
+    ax[1].set_ylabel('t')
+    # Create Colorbar for Both Axes
+    fig.colorbar(contour_pred, ax=ax, fraction=0.1, label='Amplitude')
+
+    # Save and Show the Plot
+    plt.savefig(os.path.join(figures_folder, 'ground_truth_vs_model_predictions.png'))
+    plt.show()
+    print(f'Ground truth vs model predictions figure has been saved')
+
+    
+    # calculate the MSE between the ground truth and the model predictions
+    # in-domain
+    mse = torch.nn.MSELoss()
+    mse_in = mse(torch.from_numpy(u.T[:, :1000]), predictions[:, :1000])
+    # out-of-domain
+    mse_out = mse(torch.from_numpy(u.T[:, 1000:]), predictions[:, 1000:])
+    print(f'MSE between ground truth and model predictions: \nIn-domain {mse_in:.5f} \nOut-of-domain: {mse_out:.5f}')
+
+    
     ### Plot the difference between the ground truth and the model predictions
     plt.figure(figsize=size, dpi=quality)
     diff = u.T - predictions.numpy() # rotate the predictions to match the ground truth
     # plt.contourf(x_space, t_space, diff, levels=100, cmap='viridis')
     plt.contourf(X_mesh.numpy(), T_mesh.numpy(), diff, levels=100, cmap='viridis')
     plt.colorbar(label='Amplitude')
-    plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=1)
+    plt.axhline(y=t_domain[1], color='red', linestyle='--', linewidth=2)
     plt.xlabel('x')
     plt.ylabel('t')
     plt.title('Difference Between Ground Truth and Model Predictions')
-    plt.show()
-
+    plt.tight_layout()
     plt.savefig(os.path.join(figures_folder, 'difference.png'))
+    plt.show()
     print(f'Difference figure has been saved')
 
 
@@ -291,7 +328,19 @@ if __name__ == '__main__':
     plt.ylabel('Amplitude')
     plt.title('Gaussian source predictions at t=0')
     plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(figures_folder, 't0_gaussian_multiple_predictions.png'))
     plt.show()
-
-    plt.savefig(os.path.join(figures_folder, 't0_gaussian_predictions.png'))
     print(f't=0 Gaussian source predictions figure has been saved')
+
+    plt.figure(figsize=size, dpi=quality)
+    plt.plot(x_space.numpy(), u[0, :], label='Ground Truth', linestyle='--', color='black', linewidth=3)
+    plt.plot(x_space.numpy(), best_model_predictions, label='Best Model', color='red', linewidth=3)
+    plt.xlabel('x')
+    plt.ylabel('Amplitude')
+    plt.title('Gaussian source prediction at t=0')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(figures_folder, 't0_gaussian_prediction.png'))
+    plt.show()
+    print(f't=0 Gaussian source prediction figure has been saved')
